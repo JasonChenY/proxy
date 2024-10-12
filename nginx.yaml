@@ -1,0 +1,180 @@
+apiVersion: v1
+data:
+  nginx.conf: |-
+    user  nginx;
+    worker_processes  1;
+    
+    error_log  /var/log/nginx/error.log warn;
+    pid        /var/run/nginx.pid;
+    
+    
+    events {
+        worker_connections  1024;
+    }
+    
+    
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+    
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+    
+        access_log  /var/log/nginx/access.log  main;
+    
+        sendfile        on;
+        #tcp_nopush     on;
+    
+        keepalive_timeout  65;
+    
+        #gzip  on;
+    
+        server {
+            listen       8080;
+            server_name  localhost;
+        
+            location / {
+                root   /usr/share/nginx/html;
+                index  index.html index.htm;
+            }
+        
+            error_page   500 502 503 504  /50x.html;
+            location = /50x.html {
+                root   /usr/share/nginx/html;
+            }
+    
+            location ~ ^/record-files/(.+)$ {
+                root /usr/local/src;
+                try_files /migcdr/$1 /cdr/$1 =404;
+            }
+
+            location ~ \.(gif|jpg|jpeg|png|bmp|swf|css|js|avi|gz|tgz|jar|tar|so)$ {
+                alias /usr/local/src/;
+                expires     10h;
+            }
+        }
+    }
+
+
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+  namespace: demo 
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    k8s-app: nginx
+    qcloud-app: nginx
+  name: nginx
+  namespace: demo
+spec:
+  podManagementPolicy: Parallel 
+  replicas: 20
+  selector:
+    matchLabels:
+      k8s-app: nginx
+      qcloud-app: nginx
+  serviceName: "nginx-headless-svc"
+  template:
+    metadata:
+      labels:
+        k8s-app: nginx
+        qcloud-app: nginx
+    spec:
+      affinity: {}
+      volumes:
+      - hostPath:
+          path: /root
+          type: Directory
+        name: resources 
+      - configMap:
+          items:
+          - key: nginx.conf
+            path: nginx.conf
+          name: nginx-conf
+        name: nginx-conf
+      containers:
+      - image: ccr.ccs.tencentyun.com/chenyong/nginx:wp-curl-wget
+        imagePullPolicy: IfNotPresent
+        name: nginx 
+        volumeMounts:
+        - mountPath: /etc/nginx/nginx.conf
+          name: nginx-conf
+          subPath: nginx.conf
+        - mountPath: /usr/local/src
+          name: resources 
+      # should mount to a directory with 111 mode at least, need to find a configuration
+---
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    k8s-app: nginx
+    qcloud-app: nginx
+  name: nginx
+  namespace: demo
+spec:
+  selector:
+    matchLabels:
+      k8s-app: nginx
+      qcloud-app: nginx
+  template:
+    metadata:
+      labels:
+        k8s-app: nginx
+        qcloud-app: nginx
+    spec:
+      affinity: {}
+      volumes:
+        - hostPath:
+            path: /root
+            type: Directory
+          name: resources
+        - configMap:
+            items:
+              - key: nginx.conf
+                path: nginx.conf
+            name: nginx-conf
+          name: nginx-conf
+      containers:
+        - image: ccr.ccs.tencentyun.com/chenyong/nginx:wp-curl-wget
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          name: nginx
+          volumeMounts:
+            - mountPath: /etc/nginx/nginx.conf
+              name: nginx-conf
+              subPath: nginx.conf
+            - mountPath: /usr/local/src
+              name: resources
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    k8s-app: nginx
+    qcloud-app: nginx
+  name: nginx-headless-svc
+  namespace: demo
+spec:
+  clusterIP: None
+  ports:
+  - name: 8080-8080-tcp-2zwc9io8jvo
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    k8s-app: nginx
+    qcloud-app: nginx
+  sessionAffinity: None
+  type: ClusterIP

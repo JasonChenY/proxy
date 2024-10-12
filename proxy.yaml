@@ -1,0 +1,69 @@
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: proxy-watch-pods
+  labels:
+    app: proxy-watch-pods
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: proxy-watch-pods
+  labels:
+    app: proxy-watch-pods
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: proxy-watch-pods
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    qcloud-app: proxy
+  name: proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      qcloud-app: proxy
+  template:
+    metadata:
+      labels:
+        qcloud-app: proxy
+    spec:
+      containers:
+      - image: ccr.ccs.tencentyun.com/chenyong/proxy:v1 
+        imagePullPolicy: Always 
+        env:
+          - name: BACKEND_WORKLOAD_TYPE
+            value: daemonset
+          - name: BACKEND_NAMESPACE
+            value: demo
+          - name: BACKEND_HEADLESS_SERVICE
+            value: nginx-headless-svc
+          - name: BACKEND_NAME
+            value: nginx
+          - name: BACKEND_SCHEME
+            value: http
+          - name: BACKEND_PORT
+            value: "8080"
+          - name: BACKEND_STATEFULSET_REPLICAS
+            value: "36"
+          - name: BACKEND_FALLBACKS
+            value: https://chenyong-1251707795.cos.ap-shanghai.myqcloud.com/cdr;https://chenyong-1251707795.cos.ap-shanghai.myqcloud.com/migcdr
+          - name: BATCHSIZE 
+            value: "5"
+        name: proxy
+      serviceAccountName: default
